@@ -1,0 +1,9 @@
+{
+  "gnomAD_CNV_GD_dCR_analysis.gd_catalog_xlsx": "gs://fc-712bf694-df47-4018-8788-bfdc120cdd67/CAuwerx/GenomicDisorders/general_data/GenomicDisorderRegions_hg38_CAuwerx-2026-08-25.xlsx",
+  "gnomAD_CNV_GD_dCR_analysis.manifest": "gs://fc-712bf694-df47-4018-8788-bfdc120cdd67/CAuwerx/GenomicDisorders/general_data/GNOMAD_V4.6_merged_manifest.txt.gz",
+
+  "gnomAD_CNV_GD_dCR_analysis.dcr_bucket_prefix": "gs://fc-712bf694-df47-4018-8788-bfdc120cdd67/dcr_reheader/",
+  "gnomAD_CNV_GD_dCR_analysis.final_output_path": "gs://fc-712bf694-df47-4018-8788-bfdc120cdd67/CAuwerx/GenomicDisorders/extract_dCR/output_data/GD_dCR_summary_gnomAD_CNV_v4.txt.gz",
+
+  "gnomAD_CNV_GD_dCR_analysis.docker": "us.gcr.io/YOUR_PROJECT/gnomad-gd-dcr:latest"
+}

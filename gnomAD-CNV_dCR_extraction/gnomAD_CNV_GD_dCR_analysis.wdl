@@ -13,12 +13,20 @@ version 1.0
 ## Design notes vs. the original script:
 ##   - The per-batch loop becomes a `scatter`, so batches run in parallel
 ##     instead of serially.
-##   - Instead of `gsutil cp`-ing each dCR file/index inside the loop, the
-##     dCR bed.gz + .tbi for each batch are passed in as `File` inputs
-##     (Array[File] dcr_files / dcr_indices, same order as batch_ids).
-##     Cromwell/Terra handles localization for you — this is the standard
-##     Terra pattern and lets batches localize in parallel. See the README
-##     note at the bottom for how to build that batch -> file mapping.
+##   - Batch IDs are NOT a workflow input. They're derived at runtime from
+##     PrepareManifest's output (the unique gcnv_batch values among HC,
+##     releasable samples) via read_lines() on its batches.txt output,
+##     then scattered over directly.
+##   - dCR file/index paths are NOT workflow inputs either. Since all ~1000
+##     files live at a fixed, predictable location
+##     (gs://.../dcr_reheader/BATCH.dcr.bed.gz[.tbi]), each scatter shard
+##     builds its own File path by string-interpolating the batch ID into
+##     `dcr_bucket_prefix`. WDL/Cromwell coerces a computed String into a
+##     File and localizes it like any other input — no manual enumeration
+##     of all 1000 files needed.
+##   - The final merged table is copied to a fixed GCS destination via a
+##     dedicated CopyToFinalDestination task (uses google/cloud-sdk:slim,
+##     so the main R/tabix image doesn't need gsutil bundled in).
 ##   - Everything else (column selection, gsub logic, dCR ceiling/flooring,
 ##     the findOverlaps + by() summary logic) is preserved as-is in R,
 ##     just split across tasks instead of one script.
@@ -28,11 +36,14 @@ workflow gnomAD_CNV_GD_dCR_analysis {
     File   gd_catalog_xlsx      # GenomicDisorderRegions_hg38_CAuwerx-....xlsx
     File   manifest             # GNOMAD_V4.6_merged_manifest.txt.gz
 
-    Array[String] batch_ids     # gcnv_batch values, e.g. ["xx_374", "xx_375", ...]
-    Array[File]   dcr_files     # dCR bed.gz, same order/length as batch_ids
-    Array[File]   dcr_indices   # matching .tbi files
+    # Fixed location pattern for per-batch dCR files: <prefix>BATCH.dcr.bed.gz[.tbi]
+    String dcr_bucket_prefix = "gs://fc-712bf694-df47-4018-8788-bfdc120cdd67/dcr_reheader/"
 
-    String docker = "us.gcr.io/YOUR_PROJECT/gnomad-gd-dcr:latest"  # see Dockerfile
+    # Where the final merged table gets copied to
+    String final_output_path = "gs://fc-712bf694-df47-4018-8788-bfdc120cdd67/CAuwerx/GenomicDisorders/extract_dCR/output_data/GD_dCR_summary_gnomAD_CNV_v4.txt.gz"
+
+    String docker         = "us.gcr.io/YOUR_PROJECT/gnomad-gd-dcr:latest"  # see Dockerfile
+    String gsutil_docker  = "google/cloud-sdk:slim"
     Int    process_batch_disk_gb = 30
   }
 
@@ -48,12 +59,16 @@ workflow gnomAD_CNV_GD_dCR_analysis {
       docker = docker
   }
 
-  scatter (i in range(length(batch_ids))) {
+  # Batch IDs derived from step 2's output — the unique gcnv_batch values
+  # among release/HC/PASS samples. No batch list is supplied by the user.
+  Array[String] batch_ids = read_lines(PrepareManifest.batches_list)
+
+  scatter (b in batch_ids) {
     call ProcessBatch {
       input:
-        batch_id        = batch_ids[i],
-        dcr_file        = dcr_files[i],
-        dcr_index       = dcr_indices[i],
+        batch_id        = b,
+        dcr_file        = dcr_bucket_prefix + b + ".dcr.bed.gz",
+        dcr_index       = dcr_bucket_prefix + b + ".dcr.bed.gz.tbi",
         gd_catalog_bed  = PrepareGDCatalog.gd_catalog_bed,
         gd_catalog_full = PrepareGDCatalog.gd_catalog_full,
         hc_samples_tsv  = PrepareManifest.hc_samples_tsv,
@@ -68,11 +83,19 @@ workflow gnomAD_CNV_GD_dCR_analysis {
       docker = docker
   }
 
+  call CopyToFinalDestination {
+    input:
+      local_file       = MergeBatches.merged_summary,
+      destination_path = final_output_path,
+      docker           = gsutil_docker
+  }
+
   output {
-    File gd_catalog_bed      = PrepareGDCatalog.gd_catalog_bed
-    File hc_samples_tsv      = PrepareManifest.hc_samples_tsv
-    Array[File] batch_summaries = ProcessBatch.summary_file
-    File gd_dcr_summary      = MergeBatches.merged_summary
+    File gd_catalog_bed          = PrepareGDCatalog.gd_catalog_bed
+    File hc_samples_tsv          = PrepareManifest.hc_samples_tsv
+    Array[File] batch_summaries  = ProcessBatch.summary_file
+    File gd_dcr_summary_local    = MergeBatches.merged_summary
+    File gd_dcr_summary_gcs      = CopyToFinalDestination.final_file
   }
 }
 
@@ -149,7 +172,7 @@ task PrepareManifest {
 
   output {
     File hc_samples_tsv = "hc_samples.tsv"
-    File batches_list   = "batches.txt"   # informational; not consumed downstream
+    File batches_list   = "batches.txt"   # consumed by the workflow via read_lines() to drive the scatter
   }
 
   runtime {
@@ -273,5 +296,32 @@ task MergeBatches {
     memory: "8 GB"
     cpu: 1
     disks: "local-disk 50 HDD"
+  }
+}
+
+# ------------------------------------------------------------------------
+# Copy the merged output to a fixed GCS destination
+# ------------------------------------------------------------------------
+task CopyToFinalDestination {
+  input {
+    File   local_file
+    String destination_path
+    String docker
+  }
+
+  command <<<
+    set -euo pipefail
+    gsutil cp "~{local_file}" "~{destination_path}"
+  >>>
+
+  output {
+    File final_file = destination_path
+  }
+
+  runtime {
+    docker: docker
+    memory: "2 GB"
+    cpu: 1
+    disks: "local-disk 20 HDD"
   }
 }
