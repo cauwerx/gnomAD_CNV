@@ -1,0 +1,7 @@
+version: 1.2
+workflows:
+  - name: gnomAD_CNV_GD_dCR_analysis
+    subclass: WDL
+    primaryDescriptorPath: /gnomAD-CNV_dCR_extraction/gnomAD_CNV_GD_dCR_analysis.wdl
+    testParameterFiles:
+      - /gnomAD-CNV_dCR_extraction/gnomAD_CNV_GD_dCR_analysis.inputs.json
