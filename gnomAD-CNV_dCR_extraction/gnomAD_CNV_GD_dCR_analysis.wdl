@@ -91,11 +91,6 @@ workflow gnomAD_CNV_GD_dCR_analysis {
   }
 
   output {
-    File gd_catalog_bed          = PrepareGDCatalog.gd_catalog_bed
-    File hc_samples_tsv          = PrepareManifest.hc_samples_tsv
-    Array[File] batch_summaries  = ProcessBatch.summary_file
-    File gd_dcr_summary_local    = MergeBatches.merged_summary
-    File gd_dcr_summary_gcs      = CopyToFinalDestination.final_file
   }
 }
 
