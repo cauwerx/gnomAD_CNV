@@ -273,13 +273,18 @@ task MergeBatches {
   command <<<
     set -euo pipefail
 
+    # Disable pipefail briefly so zcat receiving SIGPIPE does not fail the script
+    set +o pipefail
     zcat ~{summary_files[0]} | head -n 1 > header.txt
+    set -o pipefail
 
-    for f in ~{sep=" " summary_files}; do
-      zcat "$f" | tail -n +2
-    done > body.txt
-
-    cat header.txt body.txt | gzip > GD_dCR_summary_gnomAD_CNV_v4.txt.gz
+    # Stream header + concatenated data directly to compressed output
+    {
+      cat header.txt
+      for f in ~{sep=" " summary_files}; do
+        zcat "$f" | tail -n +2
+      done
+    } | gzip > GD_dCR_summary_gnomAD_CNV_v4.txt.gz
   >>>
 
   output {
