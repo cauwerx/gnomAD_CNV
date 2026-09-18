@@ -320,8 +320,10 @@ task CopyToFinalDestination {
 
   runtime {
     docker: docker
-    memory: "2 GB"
-    cpu: 1
-    disks: "local-disk 20 HDD"
+    memory: "16 GB"
+    cpu: 2
+    disks: "local-disk 100 HDD"
+    preemptible: 0
+    maxRetries: 2
   }
 }
